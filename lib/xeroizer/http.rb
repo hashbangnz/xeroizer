@@ -98,14 +98,34 @@ module Xeroizer
 
           raw_body = params.delete(:raw_body) ? body : {:xml => body}
 
-          response = case method
-            when :get   then    client.get(uri.request_uri, headers)
-            when :post  then    client.post(uri.request_uri, raw_body, headers)
-            when :put   then    client.put(uri.request_uri, raw_body, headers)
-          end
+          renewal_attempts = 0
+          loop do
+            response = case method
+              when :get   then    client.get(uri.request_uri, headers)
+              when :post  then    client.post(uri.request_uri, raw_body, headers)
+              when :put   then    client.put(uri.request_uri, raw_body, headers)
+            end
 
-          log_response(response, uri)
-          after_request.call(request_info, response) if after_request
+            log_response(response, uri)
+            after_request.call(request_info, response) if after_request
+
+            retry_with_renewal = false
+            if after_token_expired && renewal_attempts == 0 && [401, 503].include?(response.code.to_i)
+              error_details = CGI.parse(response.plain_body)
+              problem = error_details["oauth_problem"].first
+
+              if problem == 'token_expired'
+                # try to renew token
+                after_token_expired.call(after_token_expired_identifier, @client)
+
+                retry_with_renewal = true
+              end
+
+              renewal_attempts += 1
+            end
+
+            break unless retry_with_renewal
+          end
 
           case response.code.to_i
             when 200
