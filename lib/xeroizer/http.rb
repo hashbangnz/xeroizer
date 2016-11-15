@@ -99,6 +99,7 @@ module Xeroizer
           raw_body = params.delete(:raw_body) ? body : {:xml => body}
 
           renewal_attempts = 0
+          response = nil
           loop do
             response = case method
               when :get   then    client.get(uri.request_uri, headers)
