@@ -53,113 +53,113 @@ module Xeroizer
 
     private
 
-      def http_request(client, method, url, body, params = {})
-        # headers = {'Accept-Encoding' => 'gzip, deflate'}
+    def http_request(client, method, url, body, params = {})
+      # headers = {'Accept-Encoding' => 'gzip, deflate'}
 
-        headers = self.default_headers.merge({ 'charset' => 'utf-8' })
+      headers = self.default_headers.merge({ 'charset' => 'utf-8' })
 
-        # include the unitdp query string parameter
-        params.merge!(unitdp_param(url))
+      # include the unitdp query string parameter
+      params.merge!(unitdp_param(url))
 
-        if method != :get
-          headers['Content-Type'] ||= "application/x-www-form-urlencoded"
-        end
+      if method != :get
+        headers['Content-Type'] ||= "application/x-www-form-urlencoded"
+      end
 
-        content_type = params.delete(:content_type)
-        headers['Content-Type'] = content_type if content_type
+      content_type = params.delete(:content_type)
+      headers['Content-Type'] = content_type if content_type
 
-        # HAX.  Xero completely misuse the If-Modified-Since HTTP header.
-        headers['If-Modified-Since'] = params.delete(:ModifiedAfter).utc.strftime("%Y-%m-%dT%H:%M:%S") if params[:ModifiedAfter]
+      # HAX.  Xero completely misuse the If-Modified-Since HTTP header.
+      headers['If-Modified-Since'] = params.delete(:ModifiedAfter).utc.strftime("%Y-%m-%dT%H:%M:%S") if params[:ModifiedAfter]
 
-        # Allow 'Accept' header to be specified with :accept parameter.
-        # Valid values are :pdf or :json.
-        if params[:response]
-          response_type = params.delete(:response)
-          headers['Accept'] = case response_type
-            when Symbol then  ACCEPT_MIME_MAP[response_type]
-            else              response_type
-          end
-        end
-
-        if params.any?
-          url += "?" + params.map {|key, value| "#{CGI.escape(key.to_s)}=#{CGI.escape(value.to_s)}"}.join("&")
-        end
-
-        uri = URI.parse(url)
-
-        attempts = 0
-
-        request_info = RequestInfo.new(url, headers, params, body)
-        before_request.call(request_info) if before_request
-
-        begin
-          attempts += 1
-          logger.info("XeroGateway Request: #{method.to_s.upcase} #{uri.request_uri}") if self.logger
-
-          raw_body = params.delete(:raw_body) ? body : {:xml => body}
-
-          renewal_attempts = 0
-          response = nil
-          loop do
-            response = with_around_request(request_info) do
-              case method
-                when :get   then    client.get(uri.request_uri, headers)
-                when :post  then    client.post(uri.request_uri, raw_body, headers)
-                when :put   then    client.put(uri.request_uri, raw_body, headers)
-              end
-            end
-
-            log_response(response, uri)
-            after_request.call(request_info, response) if after_request
-
-            retry_with_renewal = false
-            if after_token_expired && renewal_attempts == 0 && [401, 503].include?(response.code.to_i)
-              error_details = CGI.parse(response.plain_body)
-              problem = error_details["oauth_problem"].first
-
-              if problem == 'token_expired'
-                # try to renew token
-                after_token_expired.call(after_token_expired_identifier, @client)
-
-                retry_with_renewal = true
-              end
-
-              renewal_attempts += 1
-            end
-
-            break unless retry_with_renewal
-          end
-
-          case response.code.to_i
-            when 200
-              response.plain_body
-            when 400
-              handle_error!(response, body)
-            when 401
-              handle_oauth_error!(response)
-            when 404
-              handle_object_not_found!(response, url)
-            when 503
-              handle_oauth_error!(response)
-            else
-              handle_unknown_response_error!(response)
-          end
-        rescue Xeroizer::OAuth::NonceUsed => exception
-          raise if attempts > nonce_used_max_attempts
-          logger.info("Nonce used: " + exception.to_s) if self.logger
-          sleep_for(1)
-          retry
-        rescue Xeroizer::OAuth::RateLimitExceeded
-          if self.rate_limit_sleep
-            raise if attempts > rate_limit_max_attempts
-            logger.info("Rate limit exceeded, retrying") if self.logger
-            sleep_for(self.rate_limit_sleep)
-            retry
-          else
-            raise
-          end
+      # Allow 'Accept' header to be specified with :accept parameter.
+      # Valid values are :pdf or :json.
+      if params[:response]
+        response_type = params.delete(:response)
+        headers['Accept'] = case response_type
+          when Symbol then  ACCEPT_MIME_MAP[response_type]
+          else              response_type
         end
       end
+
+      if params.any?
+        url += "?" + params.map {|key, value| "#{CGI.escape(key.to_s)}=#{CGI.escape(value.to_s)}"}.join("&")
+      end
+
+      uri = URI.parse(url)
+
+      attempts = 0
+
+      request_info = RequestInfo.new(url, headers, params, body)
+      before_request.call(request_info) if before_request
+
+      begin
+        attempts += 1
+        logger.info("XeroGateway Request: #{method.to_s.upcase} #{uri.request_uri}") if self.logger
+
+        raw_body = params.delete(:raw_body) ? body : {:xml => body}
+
+        renewal_attempts = 0
+        response = nil
+        loop do
+          response = with_around_request(request_info) do
+            case method
+              when :get   then    client.get(uri.request_uri, headers)
+              when :post  then    client.post(uri.request_uri, raw_body, headers)
+              when :put   then    client.put(uri.request_uri, raw_body, headers)
+            end
+          end
+
+          log_response(response, uri)
+          after_request.call(request_info, response) if after_request
+
+          retry_with_renewal = false
+          if after_token_expired && renewal_attempts == 0 && [401, 503].include?(response.code.to_i)
+            error_details = CGI.parse(response.plain_body)
+            problem = error_details["oauth_problem"].first
+
+            if problem == 'token_expired'
+              # try to renew token
+              after_token_expired.call(after_token_expired_identifier, @client)
+
+              retry_with_renewal = true
+            end
+
+            renewal_attempts += 1
+          end
+
+          break unless retry_with_renewal
+        end
+
+        case response.code.to_i
+          when 200
+            response.plain_body
+          when 400
+            handle_error!(response, body)
+          when 401
+            handle_oauth_error!(response)
+          when 404
+            handle_object_not_found!(response, url)
+          when 503
+            handle_oauth_error!(response)
+          else
+            handle_unknown_response_error!(response)
+        end
+      rescue Xeroizer::OAuth::NonceUsed => exception
+        raise if attempts > nonce_used_max_attempts
+        logger.info("Nonce used: " + exception.to_s) if self.logger
+        sleep_for(1)
+        retry
+      rescue Xeroizer::OAuth::RateLimitExceeded
+        if self.rate_limit_sleep
+          raise if attempts > rate_limit_max_attempts
+          logger.info("Rate limit exceeded, retrying") if self.logger
+          sleep_for(self.rate_limit_sleep)
+          retry
+        else
+          raise
+        end
+      end
+    end
 
     def with_around_request(request, &block)
       if around_request
