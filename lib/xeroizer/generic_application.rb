@@ -78,7 +78,6 @@ module Xeroizer
         @around_request = options.delete(:around_request)
         @after_token_expired = options.delete(:after_token_expired)
         @after_token_expired_identifier = options.delete(:after_token_expired_identifier)
-        @client = OAuth.new(consumer_key, consumer_secret, options.merge({default_headers: default_headers}))
         @client = client
         @logger = options[:logger] || false
         @unitdp = options[:unitdp] || 2
