@@ -114,10 +114,24 @@ module Xeroizer
 
           retry_with_renewal = false
           if after_token_expired && renewal_attempts == 0 && [401, 503].include?(response.code.to_i)
-            error_details = CGI.parse(response.plain_body)
-            problem = error_details["oauth_problem"].first
 
-            if problem == 'token_expired'
+            # OAuth1 error responses are in CGI format like this:
+            # oauth_problem=token_expired&oauth_problem_advice=The%20access%20token%20has%20expired
+
+            # OAuth2 error responses are in JSON format like this:
+            # {"Type":null,"Title":"Unauthorized","Status":401,"Detail":"TokenExpired: token expired at 07/22/2020 03:00:42","Instance":"db31beb0-beef-4b7f-dead-7fda18feb28e","Extensions":{}}
+
+            if client.is_a?(Xeroizer::OAuth2)
+              error_details = JSON.parse(response.plain_body)
+              problem = error_details["Detail"]
+              token_expired = problem =~ /^TokenExpired/
+            else
+              error_details = CGI.parse(response.plain_body)
+              problem = error_details["oauth_problem"].first
+              token_expired = problem == 'token_expired'
+            end
+
+            if token_expired
               # try to renew token
               after_token_expired.call(after_token_expired_identifier, client)
 
